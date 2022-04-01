@@ -3,47 +3,91 @@ import heatmapData from "../../data/points.json";
 
 import React, { useEffect, useRef, useState } from "react";
 // visualHeatmap.esm.browser
-import Heatmap from "../../heatmap_lib/dist/visualHeatmap.esm.browser";
+// import Heatmap from "../../heatmap_lib/dist/visualHeatmap.esm.browser";
+import Heatmap from "../../heatmap_lib/main.js";
 import * as d3 from "d3";
 import { timeFormat } from "d3-time-format";
 import * as d3_array from "d3-array";
 
-// function getRandomInt(min, max) {
-//   return min + Math.floor(Math.random() * (max - min + 1));
-// }
-// const localeTimeFormatter = timeFormat("%X");
+function getRandomInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+const localeTimeFormatter = timeFormat("%X");
 
 const heatmap_width = 700;
-const heatmap_height = 490;
+const heatmap_height = 550;
 
-const heatmapPoints = heatmapData[0].points;
+let maxValue = 0;
+const heatmapPoints = heatmapData[0].points.map((pointArray, _) => {
+  // point is array of {x, y, value}[]
+  return pointArray.map((point, idx, array) => {
+    if (maxValue < point.value) {
+      maxValue = point.value;
+    }
+
+    // count distance size in units using values to the right,
+    // if element is last, use value to the left
+    let sizeX;
+    if (idx !== array.length - 1) {
+      sizeX = Math.abs(array[idx + 1].x - point.x);
+    } else {
+      sizeX = Math.abs(point.x - array[idx - 1].x);
+    }
+    const sizeY =
+      heatmap_height / pointArray.length -
+      (heatmap_height / pointArray.length) * 0.01;
+    return {
+      ...point,
+      sizeX,
+      sizeY,
+    };
+  });
+});
 
 function interpolateArray(array, type, count) {
   const [oldMin, oldMax] = d3_array.extent(array);
-
+  // if type is x, array is modified
+  let arr = array;
+  if (type === "x") {
+    // console.log(arr);
+    const t = d3
+      .scaleLinear()
+      .domain(d3.extent(arr, (d) => d))
+      .range([-1, 1]);
+    // console.log("type is x, scaled array \n === test with 1700");
+    // console.log(t(1700));
+  }
   const webglMin = -1;
   const webglMax = 1;
   const oldRange = oldMax - oldMin;
   const newRange = webglMax - webglMin;
 
-  const interpolated = array.map((oldValue, index, array) => {
+  const interpolated = arr.map((oldValue, index, array) => {
+    if (type === "x" && index < 2) {
+      // console.log("interpolation test\n");
+      // console.log("oldMax", oldMax);
+      // console.log("oldValue / heatmap_width", oldValue / heatmap_width);
+      // console.log("interpolation test end\n======");
+    }
+    // turns values into 0 to 2 range
     const newValue = ((oldValue - oldMin) * newRange) / (oldRange + webglMin);
     let multiplier = type === "x" ? heatmap_width : heatmap_height;
 
     let multiplied = newValue * multiplier;
+
     if (type !== "x") {
       if (count > 0) {
-        // 320 / length
         multiplied =
-          newValue * multiplier + (550 - (550 / array.length) * count);
+          newValue * multiplier +
+          (heatmap_height - (heatmap_height / array.length) * count);
       } else {
-        multiplied = newValue * multiplier + 550;
+        multiplied = newValue * multiplier + heatmap_height;
       }
     }
     return multiplied;
   });
 
-  const floatArr = new Float32Array(interpolated);
+  // const floatArr = new Float32Array(interpolated);
 
   return interpolated;
 }
@@ -68,7 +112,7 @@ function interpolateArray(array, type, count) {
 
 const HeatmapComponent = () => {
   const mapRef = useRef(null);
-  const intervalRef = useRef();
+  // const intervalRef = useRef();
   const counterRef = useRef(0);
 
   function getHeatmapInstanceData(idx) {
@@ -81,9 +125,17 @@ const HeatmapComponent = () => {
     const yValues = heatmapPoints[localIndex].map((point) =>
       Date.parse(point.y)
     );
-    const xValues = heatmapPoints[localIndex].map((point) =>
-      Date.parse(point.x)
-    );
+
+    const xValues = heatmapPoints[localIndex].map((point) => point.x);
+
+    // data interpolated to pixel values of container element
+    // rectangle sizes in range 0 to 1
+    const sizeValues = heatmapPoints[localIndex].map((point) => {
+      return {
+        x: point.sizeX / heatmap_width,
+        y: point.sizeY,
+      };
+    });
 
     const interpolatedXValues = interpolateArray(xValues, "x");
     const interpolatedYValues = interpolateArray(
@@ -91,6 +143,10 @@ const HeatmapComponent = () => {
       "y",
       counterRef.current
     );
+    const putXintoRange = d3
+      .scaleLinear()
+      .domain(d3.extent(xValues, (d) => d))
+      .range([-1, 1]);
 
     const interpolatedHeatmap = heatmapPoints[localIndex].map((point, idx) => {
       const { value } = point;
@@ -98,19 +154,28 @@ const HeatmapComponent = () => {
         x: interpolatedXValues[idx],
         y: interpolatedYValues[idx],
         value,
+        xRange: putXintoRange(xValues[idx]),
+        sizeX: sizeValues[idx].x,
+        sizeY: sizeValues[idx].y,
       };
     });
 
     return interpolatedHeatmap;
   }
 
+  const HORIZONTAL_HEATMAP = "horizontal";
+  const CIRCLE_HEATMAP = "circle";
+
   const [yScaleTicks, setYScaleTicks] = useState([]);
 
   useEffect(() => {
     mapRef.current.innerHTML = "";
     const instance = new Heatmap(`#${mapRef.current.id}`, {
+      // 'horizontal' or 'circles'
+      // type: HORIZONTAL_HEATMAP,
+      type: CIRCLE_HEATMAP,
       size: 25.0,
-      max: 200,
+      max: maxValue,
       blur: 1.0,
       gradient: [
         {
@@ -154,6 +219,7 @@ const HeatmapComponent = () => {
 
     const initHeatmap = () => {
       const initialHeatmapData = getHeatmapInstanceData(0);
+      // console.log(initialHeatmapData);
       setYScaleTicks([heatmapPoints[0][0].y]);
       instance.renderData(initialHeatmapData);
     };
