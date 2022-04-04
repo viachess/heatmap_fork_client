@@ -9,158 +9,162 @@ import * as d3 from "d3";
 import { timeFormat } from "d3-time-format";
 import * as d3_array from "d3-array";
 
-function getRandomInt(min, max) {
-  return min + Math.floor(Math.random() * (max - min + 1));
+function generateNewPointsData() {
+  function getRandomInt(min, max) {
+    return min + Math.floor(Math.random() * (max - min + 1));
+  }
+  const localeTimeFormatter = timeFormat("%X");
+  const points = [];
+
+  let x = 1500;
+
+  for (let i = 0; i < 30; i++) {
+    for (let j = 0; j < 30; j++) {
+      const isArray = Array.isArray(points[i]);
+      if (!isArray) {
+        points[i] = [];
+      }
+      const point = {};
+      point.x = x + 50 * j;
+      point.y = new Date(Date.now() + 5000 * i);
+      point.value = getRandomInt(50, 250);
+      points[i].push(point);
+    }
+  }
+  return points;
 }
-const localeTimeFormatter = timeFormat("%X");
+
+/**
+ *
+ * @param { number } num - number to force into webgl clipspace
+ * @param { number } max  - max value in array
+ * @returns clip space coordinate corresponding number
+ */
+const clip = (num, max) => {
+  let clipSpaceCoord = (num / max) * 2.0 - 1.0;
+  if (clipSpaceCoord > 0.99) {
+    clipSpaceCoord = 0.99;
+  }
+  if (clipSpaceCoord < -0.99) {
+    clipSpaceCoord = -0.99;
+  }
+  return clipSpaceCoord;
+};
 
 const heatmap_width = 700;
 const heatmap_height = 550;
 
 let maxValue = 0;
-const heatmapPoints = heatmapData[0].points.map((pointArray, _) => {
+// add sizes to heatmap points
+// to create option to calculate vertex positions
+const heatmapPoints = heatmapData[0].points.map((pointArray, pointArrayIdx) => {
+  const xValues = pointArray.map((point) => point.x);
+  const [min, max] = d3.extent(xValues);
+  const yPixelSize = heatmap_height / pointArray.length;
+  const getYTopCoord = (index) =>
+    ((yPixelSize * index) / heatmap_height) * 2.0 - 1.0;
+
+  // 0 to 30 length
+  // yClipTopCoord is ((pixelSize * index) / heatmap_height) * 2.0 - 1.0;
+  // const pixelYPointSize = heatmap_height / pointArray.length;
+  // ??
+  let yDiff;
+  if (pointArrayIdx === 0) {
+    yDiff = getYTopCoord(pointArrayIdx + 1) - getYTopCoord(pointArrayIdx);
+  } else {
+    const previousClipSpaceY = getYTopCoord(pointArrayIdx - 1);
+    yDiff = getYTopCoord(pointArrayIdx) - previousClipSpaceY;
+  }
   // point is array of {x, y, value}[]
   return pointArray.map((point, idx, array) => {
     if (maxValue < point.value) {
       maxValue = point.value;
     }
 
+    // point to count difference on, if it is the last element of array,
+    // use previous element [index - 1], otherwise count from next [index + 1]
+    const diffPoint =
+      idx !== array.length - 1 ? array[idx + 1] : array[idx - 1];
     // count distance size in units using values to the right,
     // if element is last, use value to the left
-    let sizeX;
-    if (idx !== array.length - 1) {
-      sizeX = Math.abs(array[idx + 1].x - point.x);
-    } else {
-      sizeX = Math.abs(point.x - array[idx - 1].x);
-    }
-    const sizeY =
-      heatmap_height / pointArray.length -
-      (heatmap_height / pointArray.length) * 0.01;
+    let sizeX = Math.abs(clip(diffPoint.x, max) - clip(point.x, max));
+
+    let sizeY = yDiff;
+    // const clipYTopCoord =
     return {
       ...point,
       sizeX,
       sizeY,
+      clipYTopCoord: getYTopCoord(pointArrayIdx),
     };
   });
 });
 
-function interpolateArray(array, type, count) {
-  const [oldMin, oldMax] = d3_array.extent(array);
-  // if type is x, array is modified
-  let arr = array;
-  if (type === "x") {
-    // console.log(arr);
-    const t = d3
-      .scaleLinear()
-      .domain(d3.extent(arr, (d) => d))
-      .range([-1, 1]);
-    // console.log("type is x, scaled array \n === test with 1700");
-    // console.log(t(1700));
-  }
-  const webglMin = -1;
-  const webglMax = 1;
-  const oldRange = oldMax - oldMin;
-  const newRange = webglMax - webglMin;
-
-  const interpolated = arr.map((oldValue, index, array) => {
-    if (type === "x" && index < 2) {
-      // console.log("interpolation test\n");
-      // console.log("oldMax", oldMax);
-      // console.log("oldValue / heatmap_width", oldValue / heatmap_width);
-      // console.log("interpolation test end\n======");
-    }
-    // turns values into 0 to 2 range
-    const newValue = ((oldValue - oldMin) * newRange) / (oldRange + webglMin);
-    let multiplier = type === "x" ? heatmap_width : heatmap_height;
-
-    let multiplied = newValue * multiplier;
-
-    if (type !== "x") {
-      if (count > 0) {
-        multiplied =
-          newValue * multiplier +
-          (heatmap_height - (heatmap_height / array.length) * count);
-      } else {
-        multiplied = newValue * multiplier + heatmap_height;
-      }
-    }
-    return multiplied;
+function toClipSpace(array) {
+  const [_, max] = d3_array.extent(array);
+  // const webglMin = -1;
+  // const webglMax = 1;
+  const clipSpaced = array.map((value) => {
+    return clip(value, max);
   });
 
-  // const floatArr = new Float32Array(interpolated);
-
-  return interpolated;
+  return clipSpaced;
 }
-
-// const points = [];
-
-// let x = 1500;
-
-// for (let i = 0; i < 30; i++) {
-//   for (let j = 0; j < 30; j++) {
-//     const isArray = Array.isArray(points[i]);
-//     if (!isArray) {
-//       points[i] = [];
-//     }
-//     const point = {};
-//     point.x = x + 50 * j;
-//     point.y = new Date(Date.now() + 5000 * i);
-//     point.value = getRandomInt(50, 250);
-//     points[i].push(point);
-//   }
-// }
 
 const HeatmapComponent = () => {
   const mapRef = useRef(null);
-  // const intervalRef = useRef();
+  const intervalRef = useRef(null);
   const counterRef = useRef(0);
 
-  function getHeatmapInstanceData(idx) {
+  /**
+   *
+   * @param { number } idx - index of data slice in array of arrays with points objects
+   */
+  function getHeatmapData(idx) {
     let localIndex = idx;
     if (idx > heatmapPoints.length - 1) {
-      counterRef.current = 0;
-      localIndex = 0;
+      counterRef.current = 1;
+      localIndex = 1;
     }
-
+    // data for d3 scale drawing
+    const xValues = heatmapPoints[localIndex].map((point) => point.x);
     const yValues = heatmapPoints[localIndex].map((point) =>
       Date.parse(point.y)
     );
 
-    const xValues = heatmapPoints[localIndex].map((point) => point.x);
-
     // data interpolated to pixel values of container element
-    // rectangle sizes in range 0 to 1
-    const sizeValues = heatmapPoints[localIndex].map((point) => {
+    // rectangle sizes in range -1 to 1
+    const sizeValuesAndClipSpaceY = heatmapPoints[localIndex].map((point) => {
+      const { clipYTopCoord } = point;
       return {
-        x: point.sizeX / heatmap_width,
+        x: point.sizeX,
         y: point.sizeY,
+        clipYTopCoord,
       };
     });
 
-    const interpolatedXValues = interpolateArray(xValues, "x");
-    const interpolatedYValues = interpolateArray(
-      yValues,
-      "y",
-      counterRef.current
-    );
-    const putXintoRange = d3
-      .scaleLinear()
-      .domain(d3.extent(xValues, (d) => d))
-      .range([-1, 1]);
+    const clipSpacedXValues = toClipSpace(xValues);
 
-    const interpolatedHeatmap = heatmapPoints[localIndex].map((point, idx) => {
+    const heatmapData = heatmapPoints[localIndex].map((point, idx) => {
       const { value } = point;
       return {
-        x: interpolatedXValues[idx],
-        y: interpolatedYValues[idx],
+        scaleData: {
+          x: xValues[idx],
+          y: yValues[idx],
+        },
+        clipSpaceCoords: {
+          x: clipSpacedXValues[idx],
+          y: sizeValuesAndClipSpaceY[idx].clipYTopCoord,
+        },
         value,
-        xRange: putXintoRange(xValues[idx]),
-        sizeX: sizeValues[idx].x,
-        sizeY: sizeValues[idx].y,
+        sizeValues: {
+          sizeX: sizeValuesAndClipSpaceY[idx].x,
+          sizeY: sizeValuesAndClipSpaceY[idx].y,
+        },
       };
     });
 
-    return interpolatedHeatmap;
+    return heatmapData;
   }
 
   const HORIZONTAL_HEATMAP = "horizontal";
@@ -173,7 +177,7 @@ const HeatmapComponent = () => {
     const instance = new Heatmap(`#${mapRef.current.id}`, {
       // 'horizontal' or 'circles'
       // type: HORIZONTAL_HEATMAP,
-      type: CIRCLE_HEATMAP,
+      type: HORIZONTAL_HEATMAP,
       size: 25.0,
       max: maxValue,
       blur: 1.0,
@@ -218,7 +222,8 @@ const HeatmapComponent = () => {
     });
 
     const initHeatmap = () => {
-      const initialHeatmapData = getHeatmapInstanceData(0);
+      const initialHeatmapData = getHeatmapData(1);
+      // console.log("INITIAL HEATMAP DATA");
       // console.log(initialHeatmapData);
       setYScaleTicks([heatmapPoints[0][0].y]);
       instance.renderData(initialHeatmapData);
@@ -226,12 +231,12 @@ const HeatmapComponent = () => {
     initHeatmap();
 
     // intervalRef.current = setInterval(() => {
-    //   if (counterRef.current === 0) {
+    //   if (counterRef.current === 1) {
     //     initHeatmap();
     //   }
 
     //   counterRef.current += 1;
-    //   const newHeatmapData = getHeatmapInstanceData(counterRef.current);
+    //   const newHeatmapData = getHeatmapData(counterRef.current);
     //   setYScaleTicks((prevState) => {
     //     return [...prevState, heatmapPoints[counterRef.current][0].y];
     //   });
@@ -242,52 +247,27 @@ const HeatmapComponent = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const width = 1000;
-    const height = 1100;
+  // ----- D3 SCALE SETUP -----
+  // Setup scale scaffold, draw x and y axis scales based on data
+  const SCALE_WIDTH = 1000;
+  const SCALE_HEIGHT = 1100;
 
+  useEffect(() => {
     var svg = d3
       .select("#d3_scale")
       .html("")
       .append("svg")
-      .attr("width", width)
-      .attr("height", height);
+      .attr("width", SCALE_WIDTH)
+      .attr("height", SCALE_HEIGHT);
     const xScaleData = heatmapPoints[counterRef.current].map(
       (point) => point.x
     );
-    // const yScaleData = heatmapPoints.map((array) => {
-    //   return array[0].y;
-    // });
-    // const height = 980;
-    //     let yScale = d3
-    //       .scaleTime()
-    //       .domain(
-    //         d3.extent(yScaleData, function (d) {
-    //           return new Date(d);
-    //         })
-    //       )
-    //       .range([height / 2, 0]);
 
-    //     svg
-    //       .append("g")
-    //       .classed("y_axis", true)
-    //       .attr("transform", "translate(50, 10)")
-    //       .call(
-    //         d3
-    //           .axisLeft(yScale)
-    //           .tickFormat(d3.timeFormat("%H:%M:%S"))
-    //           .tickValues(
-    //             yScaleData.map(function (d, idx) {
-    //               return new Date(d);
-    //             })
-    //           )
-    //       );
-
-    var xAxisTranslate = height / 2 + 10;
+    var xAxisTranslate = SCALE_HEIGHT / 2 + 10;
     var xscale = d3
       .scaleLinear()
       .domain([d3.min(xScaleData), d3.max(xScaleData)])
-      .range([0, width - 100]);
+      .range([0, SCALE_WIDTH - 100]);
 
     var x_axis = d3.axisBottom().scale(xscale);
 
@@ -297,19 +277,18 @@ const HeatmapComponent = () => {
       .call(x_axis);
   }, []);
 
-  useEffect(() => {
+  function drawYScale(scaleTicks) {
     const yScaleSVG = d3.select("#d3_scale").select("svg");
     yScaleSVG.selectAll(".y_axis").remove();
-    const height = 1100;
 
     let yScale = d3
       .scaleTime()
       .domain(
-        d3.extent(yScaleTicks, function (d) {
+        d3.extent(scaleTicks, function (d) {
           return new Date(d);
         })
       )
-      .range([height / 2, 0]);
+      .range([SCALE_HEIGHT / 2, 0]);
 
     yScaleSVG
       .append("g")
@@ -323,12 +302,12 @@ const HeatmapComponent = () => {
           .axisLeft(yScale)
           .tickFormat(d3.timeFormat("%H:%M:%S"))
           .tickValues(
-            yScaleTicks.map(function (d, idx) {
+            scaleTicks.map(function (d, idx) {
               return new Date(d);
             })
           )
       );
-    const chartScaleHeight = height / 2;
+    const chartScaleHeight = SCALE_HEIGHT / 2;
     const individualTextBlockHeight = chartScaleHeight / heatmapPoints.length;
 
     yScaleSVG
@@ -338,6 +317,9 @@ const HeatmapComponent = () => {
         const yShift = chartScaleHeight - individualTextBlockHeight * index;
         this.style.transform = `translate(0,${yShift}px)`;
       });
+  }
+  useEffect(() => {
+    drawYScale(yScaleTicks);
   }, [yScaleTicks]);
 
   return (
