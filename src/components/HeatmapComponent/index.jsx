@@ -40,8 +40,13 @@ function generateNewPointsData() {
  * @param { number } max  - max value in array
  * @returns clip space coordinate corresponding number
  */
-const clip = (num, max) => {
-  let clipSpaceCoord = (num / max) * 2.0 - 1.0;
+const clip = (num, max, min) => {
+  // let clipSpaceCoord = (num / max) * 2.0 - 1.0;
+  const clipMin = -1;
+  const clipMax = 1;
+  let clipSpaceCoord =
+    ((num - min) * (clipMax - clipMin)) / (max - min) + clipMin;
+
   if (clipSpaceCoord > 0.99) {
     clipSpaceCoord = 0.99;
   }
@@ -75,7 +80,7 @@ const heatmapPoints = heatmapData[0].points.map((pointArray, pointArrayIdx) => {
     const previousClipSpaceY = getYTopCoord(pointArrayIdx - 1);
     yDiff = getYTopCoord(pointArrayIdx) - previousClipSpaceY;
   }
-  // point is array of {x, y, value}[]
+
   return pointArray.map((point, idx, array) => {
     if (maxValue < point.value) {
       maxValue = point.value;
@@ -87,7 +92,7 @@ const heatmapPoints = heatmapData[0].points.map((pointArray, pointArrayIdx) => {
       idx !== array.length - 1 ? array[idx + 1] : array[idx - 1];
     // count distance size in units using values to the right,
     // if element is last, use value to the left
-    let sizeX = Math.abs(clip(diffPoint.x, max) - clip(point.x, max));
+    let sizeX = Math.abs(clip(diffPoint.x, max, min) - clip(point.x, max, min));
 
     let sizeY = yDiff;
     // const clipYTopCoord =
@@ -101,11 +106,11 @@ const heatmapPoints = heatmapData[0].points.map((pointArray, pointArrayIdx) => {
 });
 
 function toClipSpace(array) {
-  const [_, max] = d3_array.extent(array);
+  const [min, max] = d3_array.extent(array);
   // const webglMin = -1;
   // const webglMax = 1;
   const clipSpaced = array.map((value) => {
-    return clip(value, max);
+    return clip(value, max, min);
   });
 
   return clipSpaced;
@@ -222,31 +227,36 @@ const HeatmapComponent = () => {
     });
 
     const initHeatmap = () => {
-      const initialHeatmapData = getHeatmapData(1);
-      // console.log("INITIAL HEATMAP DATA");
-      // console.log(initialHeatmapData);
+      // counterRef.current = 0;
+      instance.clear();
+      // console.log(instance);
+      const initialHeatmapData = getHeatmapData(0);
       setYScaleTicks([heatmapPoints[0][0].y]);
       instance.renderData(initialHeatmapData);
+      counterRef.current += 1;
     };
-    initHeatmap();
+    // initHeatmap();
 
-    // intervalRef.current = setInterval(() => {
-    //   if (counterRef.current === 1) {
-    //     initHeatmap();
-    //   }
+    intervalRef.current = setInterval(() => {
+      if (counterRef.current > heatmapPoints.length) {
+        counterRef.current = 0;
+      }
+      if (counterRef.current === 0) {
+        initHeatmap();
+        return;
+      }
 
-    //   counterRef.current += 1;
-    //   const newHeatmapData = getHeatmapData(counterRef.current);
-    //   setYScaleTicks((prevState) => {
-    //     return [...prevState, heatmapPoints[counterRef.current][0].y];
-    //   });
-    //   instance.addData(newHeatmapData, true);
-    // }, 2000);
+      counterRef.current += 1;
+      const newHeatmapData = getHeatmapData(counterRef.current);
+      setYScaleTicks((prevState) => {
+        return [...prevState, heatmapPoints[counterRef.current][0].y];
+      });
+      instance.addData(newHeatmapData, true);
+    }, 2000);
     return () => {
-      // clearInterval(intervalRef.current);
+      clearInterval(intervalRef.current);
     };
   }, []);
-
   // ----- D3 SCALE SETUP -----
   // Setup scale scaffold, draw x and y axis scales based on data
   const SCALE_WIDTH = 1000;
