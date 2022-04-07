@@ -9,6 +9,9 @@ import * as d3 from "d3";
 import { timeFormat } from "d3-time-format";
 import * as d3_array from "d3-array";
 
+import GradientBox from "../GradientBox";
+import DistanceRangeSlider from "../DistanceRangeSlider";
+
 function generateNewPointsData() {
   function getRandomInt(min, max) {
     return min + Math.floor(Math.random() * (max - min + 1));
@@ -34,29 +37,26 @@ function generateNewPointsData() {
   return points;
 }
 
-/**
- *
- * @param { number } num - number to force into webgl clipspace
- * @param { number } max  - max value in array
- * @returns clip space coordinate corresponding number
- */
-const clip = (num, max, min) => {
-  // let clipSpaceCoord = (num / max) * 2.0 - 1.0;
-  const clipMin = -1;
-  const clipMax = 1;
-  let clipSpaceCoord =
-    ((num - min) * (clipMax - clipMin)) / (max - min) + clipMin;
+const pipeDistanceMarks = [
+  {
+    value: 1650,
+    label: "1650 km.",
+  },
+  {
+    value: 1700,
+    label: "1700 km.",
+  },
+  {
+    value: 1850,
+    label: "1850 km.",
+  },
+  {
+    value: 2300,
+    label: "2300 km.",
+  },
+];
 
-  if (clipSpaceCoord > 0.99) {
-    clipSpaceCoord = 0.99;
-  }
-  if (clipSpaceCoord < -0.99) {
-    clipSpaceCoord = -0.99;
-  }
-  return clipSpaceCoord;
-};
-
-const heatmap_width = 700;
+// const heatmap_width = 700;
 const heatmap_height = 550;
 
 let maxValue = 0;
@@ -105,15 +105,78 @@ const heatmapPoints = heatmapData[0].points.map((pointArray, pointArrayIdx) => {
   });
 });
 
+/**
+ *
+ * @param { number } num - number to force into webgl clipspace
+ * @param { number } max  - max value in array
+ * @returns clip space coordinate corresponding number
+ */
+function clip(num, max, min) {
+  // let clipSpaceCoord = (num / max) * 2.0 - 1.0;
+  const clipMin = -1;
+  const clipMax = 1;
+  let clipSpaceCoord =
+    ((num - min) * (clipMax - clipMin)) / (max - min) + clipMin;
+
+  if (clipSpaceCoord > 0.99) {
+    clipSpaceCoord = 0.99;
+  }
+  if (clipSpaceCoord < -0.99) {
+    clipSpaceCoord = -0.99;
+  }
+  return clipSpaceCoord;
+}
+
 function toClipSpace(array) {
   const [min, max] = d3_array.extent(array);
-  // const webglMin = -1;
-  // const webglMax = 1;
-  const clipSpaced = array.map((value) => {
+  const clipSpacedValues = array.map((value) => {
     return clip(value, max, min);
   });
 
-  return clipSpaced;
+  return clipSpacedValues;
+}
+
+// scales setup
+function drawYScale(scaleTicks, scaleHeight) {
+  const yScaleSVG = d3.select("#d3_scale").select("svg");
+  yScaleSVG.selectAll(".y_axis").remove();
+
+  let yScale = d3
+    .scaleTime()
+    .domain(
+      d3.extent(scaleTicks, function (d) {
+        return new Date(d);
+      })
+    )
+    .range([scaleHeight, 0]);
+
+  yScaleSVG
+    .append("g")
+    .classed("y_axis", true)
+    .html("")
+    .attr("transform", "translate(50, 10)")
+    .transition()
+    .duration(500)
+    .call(
+      d3
+        .axisLeft(yScale)
+        .tickFormat(d3.timeFormat("%H:%M:%S"))
+        .tickValues(
+          scaleTicks.map(function (d, idx) {
+            return new Date(d);
+          })
+        )
+    );
+  const chartScaleHeight = scaleHeight;
+  const individualTextBlockHeight = chartScaleHeight / heatmapPoints.length;
+
+  yScaleSVG
+    .select(".y_axis")
+    .selectAll(".tick")
+    .select(function (date, index) {
+      const yShift = chartScaleHeight - individualTextBlockHeight * index;
+      this.style.transform = `translate(0,${yShift}px)`;
+    });
 }
 
 const HeatmapComponent = () => {
@@ -122,15 +185,16 @@ const HeatmapComponent = () => {
   const counterRef = useRef(0);
 
   /**
-   *
    * @param { number } idx - index of data slice in array of arrays with points objects
    */
   function getHeatmapData(idx) {
+    // console.log("heatmap log, index: ", idx);
     let localIndex = idx;
-    if (idx > heatmapPoints.length - 1) {
-      counterRef.current = 1;
-      localIndex = 1;
-    }
+
+    // if (idx > heatmapPoints.length - 1) {
+    // counterRef.current = 1;
+    // localIndex = 0;
+    // }
     // data for d3 scale drawing
     const xValues = heatmapPoints[localIndex].map((point) => point.x);
     const yValues = heatmapPoints[localIndex].map((point) =>
@@ -169,6 +233,11 @@ const HeatmapComponent = () => {
       };
     });
 
+    if (idx === 0 || idx === 1) {
+      console.log("index log ", idx);
+      console.log("returned data");
+      console.log(heatmapData);
+    }
     return heatmapData;
   }
 
@@ -176,6 +245,58 @@ const HeatmapComponent = () => {
   const CIRCLE_HEATMAP = "circle";
 
   const [yScaleTicks, setYScaleTicks] = useState([]);
+  const [gradientRange, setGradientRange] = useState([
+    {
+      color: [0, 0, 255, 1.0],
+      offset: 0.11,
+    },
+    {
+      color: [0, 100, 255, 1.0],
+      offset: 0.22,
+    },
+    {
+      color: [0, 150, 255, 1.0],
+      offset: 0.33,
+    },
+    {
+      color: [0, 200, 255, 1.0],
+      offset: 0.44,
+    },
+    {
+      color: [0, 0, 0, 1.0],
+      offset: 0.55,
+    },
+    {
+      color: [255, 255, 0, 1.0],
+      offset: 0.66,
+    },
+    {
+      color: [255, 210, 0, 1.0],
+      offset: 0.77,
+    },
+    {
+      color: [255, 140, 0, 1.0],
+      offset: 0.88,
+    },
+    {
+      color: [255, 0, 0, 1.0],
+      offset: 1.0,
+    },
+  ]);
+
+  function updateGradientRangeColor(rgbArr, idx) {
+    const newRange = gradientRange.map((colorObj, index) => {
+      if (index === idx) {
+        return {
+          ...colorObj,
+          color: rgbArr,
+        };
+      } else {
+        return colorObj;
+      }
+    });
+    setGradientRange(newRange);
+  }
 
   useEffect(() => {
     mapRef.current.innerHTML = "";
@@ -186,81 +307,54 @@ const HeatmapComponent = () => {
       size: 25.0,
       max: maxValue,
       blur: 1.0,
-      gradient: [
-        {
-          color: [0, 0, 255, 1.0],
-          offset: 0,
-        },
-        {
-          color: [0, 100, 255, 1.0],
-          offset: 0.2,
-        },
-        {
-          color: [0, 150, 255, 1.0],
-          offset: 0.3,
-        },
-        {
-          color: [0, 200, 255, 1.0],
-          offset: 0.4,
-        },
-        // {
-        //   color: [0, 0, 0, 1.0],
-        //   offset: 0.5
-        // },
-        {
-          color: [255, 255, 0, 1.0],
-          offset: 0.6,
-        },
-        {
-          color: [255, 210, 0, 1.0],
-          offset: 0.7,
-        },
-        {
-          color: [255, 140, 0, 1.0],
-          offset: 0.85,
-        },
-        {
-          color: [255, 0, 0, 1.0],
-          offset: 1.0,
-        },
-      ],
+      // offset should be around 0.11 per element. 9 elements in total
+      // mid has to be black.
+      gradient: gradientRange,
     });
 
     const initHeatmap = () => {
-      // counterRef.current = 0;
-      instance.clear();
-      // console.log(instance);
       const initialHeatmapData = getHeatmapData(0);
       setYScaleTicks([heatmapPoints[0][0].y]);
       instance.renderData(initialHeatmapData);
-      counterRef.current += 1;
     };
-    // initHeatmap();
 
     intervalRef.current = setInterval(() => {
-      if (counterRef.current > heatmapPoints.length) {
-        counterRef.current = 0;
+      if (counterRef.current > 1) {
+        clearInterval(intervalRef.current);
+        return;
       }
       if (counterRef.current === 0) {
+        console.log(`counterRef === 0 if condition ${counterRef.current}`);
+        counterRef.current += 1;
+        initHeatmap();
+
+        return;
+      }
+      if (counterRef.current === heatmapPoints.length - 1) {
+        counterRef.current = 0;
+        instance.clear();
         initHeatmap();
         return;
       }
 
-      counterRef.current += 1;
       const newHeatmapData = getHeatmapData(counterRef.current);
       setYScaleTicks((prevState) => {
         return [...prevState, heatmapPoints[counterRef.current][0].y];
       });
       instance.addData(newHeatmapData, true);
+      counterRef.current += 1;
     }, 2000);
     return () => {
       clearInterval(intervalRef.current);
     };
-  }, []);
+  }, [gradientRange]);
   // ----- D3 SCALE SETUP -----
   // Setup scale scaffold, draw x and y axis scales based on data
-  const SCALE_WIDTH = 1000;
-  const SCALE_HEIGHT = 1100;
+  const SCALE_WIDTH = 1100;
+  const SCALE_HEIGHT = 550;
+  // --
+  const HEATMAP_WIDTH = SCALE_WIDTH - 100;
+  const HEATMAP_HEIGHT = SCALE_HEIGHT;
 
   useEffect(() => {
     var svg = d3
@@ -268,12 +362,12 @@ const HeatmapComponent = () => {
       .html("")
       .append("svg")
       .attr("width", SCALE_WIDTH)
-      .attr("height", SCALE_HEIGHT);
+      .attr("height", SCALE_HEIGHT + 50);
     const xScaleData = heatmapPoints[counterRef.current].map(
       (point) => point.x
     );
 
-    var xAxisTranslate = SCALE_HEIGHT / 2 + 10;
+    var xAxisTranslate = Number(SCALE_HEIGHT) + 10;
     var xscale = d3
       .scaleLinear()
       .domain([d3.min(xScaleData), d3.max(xScaleData)])
@@ -283,60 +377,26 @@ const HeatmapComponent = () => {
 
     svg
       .append("g")
-      .attr("transform", "translate(50, " + xAxisTranslate + ")")
+      .style("transform", `translate(50px, ${xAxisTranslate}px)`)
+      // .attr("transform", ``)
       .call(x_axis);
   }, []);
 
-  function drawYScale(scaleTicks) {
-    const yScaleSVG = d3.select("#d3_scale").select("svg");
-    yScaleSVG.selectAll(".y_axis").remove();
-
-    let yScale = d3
-      .scaleTime()
-      .domain(
-        d3.extent(scaleTicks, function (d) {
-          return new Date(d);
-        })
-      )
-      .range([SCALE_HEIGHT / 2, 0]);
-
-    yScaleSVG
-      .append("g")
-      .classed("y_axis", true)
-      .html("")
-      .attr("transform", "translate(50, 10)")
-      .transition()
-      .duration(500)
-      .call(
-        d3
-          .axisLeft(yScale)
-          .tickFormat(d3.timeFormat("%H:%M:%S"))
-          .tickValues(
-            scaleTicks.map(function (d, idx) {
-              return new Date(d);
-            })
-          )
-      );
-    const chartScaleHeight = SCALE_HEIGHT / 2;
-    const individualTextBlockHeight = chartScaleHeight / heatmapPoints.length;
-
-    yScaleSVG
-      .select(".y_axis")
-      .selectAll(".tick")
-      .select(function (date, index) {
-        const yShift = chartScaleHeight - individualTextBlockHeight * index;
-        this.style.transform = `translate(0,${yShift}px)`;
-      });
-  }
   useEffect(() => {
-    drawYScale(yScaleTicks);
+    drawYScale(yScaleTicks, SCALE_HEIGHT);
   }, [yScaleTicks]);
+
+  const [distanceSliderValues, setDistanceSliderValues] = React.useState([
+    1600, 1900,
+  ]);
 
   return (
     <div>
-      <h2>давление в трубе</h2>
+      <h2 style={{ fontWeight: "normal", marginLeft: "5rem" }}>
+        Давление в трубе
+      </h2>
 
-      <div style={{ position: "relative", width: 800, height: 1200 }}>
+      <div style={{ position: "relative", width: SCALE_WIDTH, height: 600 }}>
         <div
           id="d3_scale"
           style={{ marginLeft: "2.2rem", position: "absolute" }}
@@ -345,15 +405,53 @@ const HeatmapComponent = () => {
           id="visual-heatmap-container"
           ref={mapRef}
           style={{
-            width: 900,
-            height: 550,
+            width: `${HEATMAP_WIDTH}px`,
+            height: `${HEATMAP_HEIGHT}px`,
             position: "absolute",
             top: "10px",
             backgroundColor: "lightgrey",
             left: "86px",
-            zIndex: 10,
+            zIndex: 1,
           }}
         ></div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        <DistanceRangeSlider
+          width={HEATMAP_WIDTH}
+          values={distanceSliderValues}
+          setValues={setDistanceSliderValues}
+        />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            width: "100%",
+            maxWidth: 1000,
+            // margin: "0 auto",
+            marginLeft: "60px",
+            paddingTop: "1rem",
+            // gap: "25px",
+          }}
+        >
+          {gradientRange.map((gradientItem, idx) => {
+            const { color, offset } = gradientItem;
+            return (
+              <GradientBox
+                color={color}
+                offset={offset}
+                key={`${color}/${idx}`}
+                index={idx}
+                updateGradientRangeColor={updateGradientRangeColor}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
