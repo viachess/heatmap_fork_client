@@ -11,24 +11,30 @@ import * as d3_array from "d3-array";
 
 import GradientBox from "../GradientBox";
 import DistanceRangeSlider from "../DistanceRangeSlider";
+import { Button } from "antd";
+import YScale from "../YScale";
 
 function generateNewPointsData() {
+  const SLICES_COUNT = 30;
+  const DISTANCE_POINTS_COUNT = 20;
+  const DISTANCE_STEP = 150;
+  // const localeTimeFormatter = timeFormat("%X");
   function getRandomInt(min, max) {
     return min + Math.floor(Math.random() * (max - min + 1));
   }
-  const localeTimeFormatter = timeFormat("%X");
+
   const points = [];
 
   let x = 1500;
 
-  for (let i = 0; i < 30; i++) {
-    for (let j = 0; j < 30; j++) {
+  for (let i = 0; i < SLICES_COUNT; i++) {
+    for (let j = 0; j < DISTANCE_POINTS_COUNT; j++) {
       const isArray = Array.isArray(points[i]);
       if (!isArray) {
         points[i] = [];
       }
       const point = {};
-      point.x = x + 50 * j;
+      point.x = x + DISTANCE_STEP * j;
       point.y = new Date(Date.now() + 5000 * i);
       point.value = getRandomInt(50, 250);
       points[i].push(point);
@@ -37,73 +43,94 @@ function generateNewPointsData() {
   return points;
 }
 
-const pipeDistanceMarks = [
-  {
-    value: 1650,
-    label: "1650 km.",
-  },
-  {
-    value: 1700,
-    label: "1700 km.",
-  },
-  {
-    value: 1850,
-    label: "1850 km.",
-  },
-  {
-    value: 2300,
-    label: "2300 km.",
-  },
-];
-
-// const heatmap_width = 700;
-const heatmap_height = 550;
+// ----- D3 SCALE SETUP -----
+// Setup scale scaffold, draw x and y axis scales based on data
+const SCALE_WIDTH = 1100;
+const SCALE_HEIGHT = 550;
+// --
+const HEATMAP_WIDTH = SCALE_WIDTH - 100;
+const HEATMAP_HEIGHT = SCALE_HEIGHT;
 
 let maxValue = 0;
 // add sizes to heatmap points
 // to create option to calculate vertex positions
-const heatmapPoints = heatmapData[0].points.map((pointArray, pointArrayIdx) => {
-  const xValues = pointArray.map((point) => point.x);
-  const [min, max] = d3.extent(xValues);
-  const yPixelSize = heatmap_height / pointArray.length;
-  const getYTopCoord = (index) =>
-    ((yPixelSize * index) / heatmap_height) * 2.0 - 1.0;
+let minDistanceValue;
+let maxDistanceValue;
+let distancePointsArray;
 
-  // 0 to 30 length
-  // yClipTopCoord is ((pixelSize * index) / heatmap_height) * 2.0 - 1.0;
-  // const pixelYPointSize = heatmap_height / pointArray.length;
-  // ??
-  let yDiff;
+const MIN_ALLOWED_POINT_VALUE = -4.1;
+const MAX_ALLOWED_POINT_VALUE = 4.06;
+
+const heatmapPoints = heatmapData[1].points.map((pointArray, pointArrayIdx) => {
+  const distancePoints = pointArray.map((point) => point.x);
+  // -- distance data for range slider.
+  const [minDistance, maxDistance] = d3.extent(distancePoints);
   if (pointArrayIdx === 0) {
-    yDiff = getYTopCoord(pointArrayIdx + 1) - getYTopCoord(pointArrayIdx);
-  } else {
-    const previousClipSpaceY = getYTopCoord(pointArrayIdx - 1);
-    yDiff = getYTopCoord(pointArrayIdx) - previousClipSpaceY;
+    minDistanceValue = minDistance;
+    maxDistanceValue = maxDistance;
+    distancePointsArray = distancePoints;
   }
 
   return pointArray.map((point, idx, array) => {
     if (maxValue < point.value) {
       maxValue = point.value;
     }
+    const yPixelSize = HEATMAP_HEIGHT / pointArray.length;
 
-    // point to count difference on, if it is the last element of array,
-    // use previous element [index - 1], otherwise count from next [index + 1]
-    const diffPoint =
-      idx !== array.length - 1 ? array[idx + 1] : array[idx - 1];
-    // count distance size in units using values to the right,
-    // if element is last, use value to the left
-    let sizeX = Math.abs(clip(diffPoint.x, max, min) - clip(point.x, max, min));
+    const getYBottomCoord = (index) =>
+      ((yPixelSize * index) / HEATMAP_HEIGHT) * 2.0 - 1.0;
 
-    let sizeY = yDiff;
-    // const clipYTopCoord =
+    let yDiff;
+    if (pointArrayIdx === 0) {
+      yDiff =
+        getYBottomCoord(pointArrayIdx + 1) - getYBottomCoord(pointArrayIdx);
+    } else {
+      const previousClipSpaceY = getYBottomCoord(pointArrayIdx - 1);
+      yDiff = getYBottomCoord(pointArrayIdx) - previousClipSpaceY;
+    }
+
+    const nextPoint = array[idx + 1];
+    const gradientOffsetCurrent = forceNumIntoRange(
+      point.value,
+      [MIN_ALLOWED_POINT_VALUE, MAX_ALLOWED_POINT_VALUE],
+      [0, 1]
+    );
+    const gradientOffsetNext = forceNumIntoRange(
+      point.value,
+      [MIN_ALLOWED_POINT_VALUE, MAX_ALLOWED_POINT_VALUE],
+      [0, 1]
+    );
+
+    let rightOffsetX = nextPoint
+      ? clip(nextPoint.x, maxDistance, minDistance) -
+        clip(point.x, maxDistance, minDistance)
+      : 0;
+
+    let bottomOffsetY = yDiff;
+
     return {
       ...point,
-      sizeX,
-      sizeY,
-      clipYTopCoord: getYTopCoord(pointArrayIdx),
+      rightOffsetX,
+      bottomOffsetY,
+      clipYBottomCoord: getYBottomCoord(pointArrayIdx),
+      gradientOffset: {
+        current: gradientOffsetCurrent > 1 ? 1 : gradientOffsetCurrent,
+        next: gradientOffsetNext > 1 ? 1 : gradientOffsetNext,
+      },
     };
   });
+  // .slice(0, -1);
 });
+// console.log("points");
+// console.log(heatmapPoints);
+
+function forceNumIntoRange(num, oldRange, newRange) {
+  const [newMin, newMax] = newRange;
+  const [oldMin, oldMax] = oldRange;
+  const result =
+    ((num - oldMin) * (newMax - newMin)) / (oldMax - oldMin) + newMin;
+  return result;
+}
 
 /**
  *
@@ -118,12 +145,12 @@ function clip(num, max, min) {
   let clipSpaceCoord =
     ((num - min) * (clipMax - clipMin)) / (max - min) + clipMin;
 
-  if (clipSpaceCoord > 0.99) {
-    clipSpaceCoord = 0.99;
-  }
-  if (clipSpaceCoord < -0.99) {
-    clipSpaceCoord = -0.99;
-  }
+  // if (clipSpaceCoord > 0.99) {
+  //   clipSpaceCoord = 0.99;
+  // }
+  // if (clipSpaceCoord < -0.99) {
+  //   clipSpaceCoord = -0.99;
+  // }
   return clipSpaceCoord;
 }
 
@@ -136,123 +163,83 @@ function toClipSpace(array) {
   return clipSpacedValues;
 }
 
-// scales setup
-function drawYScale(scaleTicks, scaleHeight) {
-  const yScaleSVG = d3.select("#d3_scale").select("svg");
-  yScaleSVG.selectAll(".y_axis").remove();
+/**
+ * @param { number } idx - index of data slice in array of arrays with points objects
+ */
+function getHeatmapDataSliceByIndex(index) {
+  const currentTimeSlice = heatmapPoints[index];
+  // if (idx > heatmapPoints.length - 1) {
+  // counterRef.current = 1;
+  // localIndex = 0;
+  // }
+  // data for d3 scale drawing
+  const xValues = currentTimeSlice.map((point) => point.x);
+  const yValues = currentTimeSlice.map((point) => Date.parse(point.y));
 
-  let yScale = d3
-    .scaleTime()
-    .domain(
-      d3.extent(scaleTicks, function (d) {
-        return new Date(d);
-      })
-    )
-    .range([scaleHeight, 0]);
+  // data interpolated to pixel values of container element
+  // rectangle sizes in range -1 to 1
+  const offsetValuesAndClipSpaceY = currentTimeSlice.map((point) => {
+    const { clipYBottomCoord } = point;
+    return {
+      x: point.rightOffsetX,
+      y: point.bottomOffsetY,
+      clipYBottomCoord,
+    };
+  });
 
-  yScaleSVG
-    .append("g")
-    .classed("y_axis", true)
-    .html("")
-    .attr("transform", "translate(50, 10)")
-    .transition()
-    .duration(500)
-    .call(
-      d3
-        .axisLeft(yScale)
-        .tickFormat(d3.timeFormat("%H:%M:%S"))
-        .tickValues(
-          scaleTicks.map(function (d, idx) {
-            return new Date(d);
-          })
-        )
-    );
-  const chartScaleHeight = scaleHeight;
-  const individualTextBlockHeight = chartScaleHeight / heatmapPoints.length;
+  const clipSpacedXValues = toClipSpace(xValues);
 
-  yScaleSVG
-    .select(".y_axis")
-    .selectAll(".tick")
-    .select(function (date, index) {
-      const yShift = chartScaleHeight - individualTextBlockHeight * index;
-      this.style.transform = `translate(0,${yShift}px)`;
-    });
+  const heatmapData = currentTimeSlice.map((point, idx) => {
+    const { value, gradientOffset } = point;
+    const { current, next } = gradientOffset;
+
+    return {
+      scaleData: {
+        x: xValues[idx],
+        y: yValues[idx],
+      },
+      clipSpaceCoords: {
+        x: clipSpacedXValues[idx],
+        y: offsetValuesAndClipSpaceY[idx].clipYBottomCoord,
+      },
+      gradientOffset: {
+        current,
+        next,
+      },
+      value,
+      sizeValues: {
+        rightOffsetX: offsetValuesAndClipSpaceY[idx].x,
+        bottomOffsetY: offsetValuesAndClipSpaceY[idx].y,
+      },
+    };
+  });
+  // logging condition
+  if (index === 0 || index === 1) {
+    // console.log("index log ", idx);
+    // console.log("returned data");
+    // console.log(heatmapData);
+  }
+  return heatmapData;
 }
+
+// scales setup
 
 const HeatmapComponent = () => {
   const mapRef = useRef(null);
   const intervalRef = useRef(null);
   const counterRef = useRef(0);
 
-  /**
-   * @param { number } idx - index of data slice in array of arrays with points objects
-   */
-  function getHeatmapData(idx) {
-    // console.log("heatmap log, index: ", idx);
-    let localIndex = idx;
-
-    // if (idx > heatmapPoints.length - 1) {
-    // counterRef.current = 1;
-    // localIndex = 0;
-    // }
-    // data for d3 scale drawing
-    const xValues = heatmapPoints[localIndex].map((point) => point.x);
-    const yValues = heatmapPoints[localIndex].map((point) =>
-      Date.parse(point.y)
-    );
-
-    // data interpolated to pixel values of container element
-    // rectangle sizes in range -1 to 1
-    const sizeValuesAndClipSpaceY = heatmapPoints[localIndex].map((point) => {
-      const { clipYTopCoord } = point;
-      return {
-        x: point.sizeX,
-        y: point.sizeY,
-        clipYTopCoord,
-      };
-    });
-
-    const clipSpacedXValues = toClipSpace(xValues);
-
-    const heatmapData = heatmapPoints[localIndex].map((point, idx) => {
-      const { value } = point;
-      return {
-        scaleData: {
-          x: xValues[idx],
-          y: yValues[idx],
-        },
-        clipSpaceCoords: {
-          x: clipSpacedXValues[idx],
-          y: sizeValuesAndClipSpaceY[idx].clipYTopCoord,
-        },
-        value,
-        sizeValues: {
-          sizeX: sizeValuesAndClipSpaceY[idx].x,
-          sizeY: sizeValuesAndClipSpaceY[idx].y,
-        },
-      };
-    });
-
-    if (idx === 0 || idx === 1) {
-      console.log("index log ", idx);
-      console.log("returned data");
-      console.log(heatmapData);
-    }
-    return heatmapData;
-  }
-
   const HORIZONTAL_HEATMAP = "horizontal";
-  const CIRCLE_HEATMAP = "circle";
+  // const CIRCLE_HEATMAP = "circle";
 
-  const [yScaleTicks, setYScaleTicks] = useState([]);
   const [gradientRange, setGradientRange] = useState([
     {
       color: [0, 0, 255, 1.0],
-      offset: 0.11,
+      offset: 0.0,
     },
     {
       color: [0, 100, 255, 1.0],
-      offset: 0.22,
+      offset: 0.16,
     },
     {
       color: [0, 150, 255, 1.0],
@@ -264,7 +251,7 @@ const HeatmapComponent = () => {
     },
     {
       color: [0, 0, 0, 1.0],
-      offset: 0.55,
+      offset: 0.5,
     },
     {
       color: [255, 255, 0, 1.0],
@@ -297,10 +284,65 @@ const HeatmapComponent = () => {
     });
     setGradientRange(newRange);
   }
+  const heatmapInstanceRef = useRef(null);
+  // const [currentData, setCurrentData] = useState([]);
+  const updateCanvas = () => {
+    if (heatmapInstanceRef.current) {
+      console.log("heatmap instance exists");
+      const instance = heatmapInstanceRef.current;
+      const dataSlice = getHeatmapDataSliceByIndex(counterRef.current);
+      if (counterRef.current < heatmapPoints[0].length) {
+        if (counterRef.current === 0) {
+          // setCurrentData([...dataSlice]);
+          instance.renderData(dataSlice);
+        } else {
+          // setCurrentData((prevState) => [...prevState, ...dataSlice]);
+          instance.addData(dataSlice, true);
+        }
+        counterRef.current += 1;
+      } else if (
+        counterRef.current === heatmapPoints[0].length - 1 ||
+        counterRef.current > heatmapPoints[0].length - 1
+      ) {
+        counterRef.current = 0;
+        instance.clear();
+      }
+    }
+  };
+  // useEffect(() => {
 
+  // }, [currentData]);
+
+  // const updateYScale = () => {
+  //   if (counterRef.current < heatmapPoints[0].length - 1) {
+  //     setYScaleTicks((prevState) => [
+  //       ...prevState,
+  //       heatmapPoints[counterRef.current][0].y,
+  //     ]);
+  //     counterRef.current += 1;
+  //   } else if (
+  //     counterRef.current === heatmapPoints[0].length - 1 ||
+  //     counterRef.current > heatmapPoints[0].length - 1
+  //   ) {
+  //     // console.log("counter is === or > length, wiping values");
+  //     counterRef.current = 0;
+  //     setYScaleTicks([]);
+  //   }
+  // };
+
+  function startDraw(instance) {
+    intervalRef.current = setInterval(() => {
+      // updateYScale();
+      updateCanvas();
+    }, 2000);
+  }
+  function stopDraw() {
+    clearInterval(intervalRef.current);
+  }
+  // setup heatmap
   useEffect(() => {
     mapRef.current.innerHTML = "";
-    const instance = new Heatmap(`#${mapRef.current.id}`, {
+    heatmapInstanceRef.current = new Heatmap(`#${mapRef.current.id}`, {
       // 'horizontal' or 'circles'
       // type: HORIZONTAL_HEATMAP,
       type: HORIZONTAL_HEATMAP,
@@ -312,49 +354,12 @@ const HeatmapComponent = () => {
       gradient: gradientRange,
     });
 
-    const initHeatmap = () => {
-      const initialHeatmapData = getHeatmapData(0);
-      setYScaleTicks([heatmapPoints[0][0].y]);
-      instance.renderData(initialHeatmapData);
-    };
-
-    intervalRef.current = setInterval(() => {
-      if (counterRef.current > 1) {
-        clearInterval(intervalRef.current);
-        return;
-      }
-      if (counterRef.current === 0) {
-        console.log(`counterRef === 0 if condition ${counterRef.current}`);
-        counterRef.current += 1;
-        initHeatmap();
-
-        return;
-      }
-      if (counterRef.current === heatmapPoints.length - 1) {
-        counterRef.current = 0;
-        instance.clear();
-        initHeatmap();
-        return;
-      }
-
-      const newHeatmapData = getHeatmapData(counterRef.current);
-      setYScaleTicks((prevState) => {
-        return [...prevState, heatmapPoints[counterRef.current][0].y];
-      });
-      instance.addData(newHeatmapData, true);
-      counterRef.current += 1;
-    }, 2000);
+    // 2s interval to fill chart with next time slice
     return () => {
-      clearInterval(intervalRef.current);
+      // console.log("component unmounting, timer destroyed");
+      // clearInterval(intervalRef.current);
     };
   }, [gradientRange]);
-  // ----- D3 SCALE SETUP -----
-  // Setup scale scaffold, draw x and y axis scales based on data
-  const SCALE_WIDTH = 1100;
-  const SCALE_HEIGHT = 550;
-  // --
-  const HEATMAP_WIDTH = SCALE_WIDTH - 100;
-  const HEATMAP_HEIGHT = SCALE_HEIGHT;
 
   useEffect(() => {
     var svg = d3
@@ -382,25 +387,30 @@ const HeatmapComponent = () => {
       .call(x_axis);
   }, []);
 
-  useEffect(() => {
-    drawYScale(yScaleTicks, SCALE_HEIGHT);
-  }, [yScaleTicks]);
-
-  const [distanceSliderValues, setDistanceSliderValues] = React.useState([
-    1600, 1900,
-  ]);
+  const [distanceSliderValues, setDistanceSliderValues] =
+    useState(distancePointsArray);
 
   return (
     <div>
-      <h2 style={{ fontWeight: "normal", marginLeft: "5rem" }}>
-        Давление в трубе
-      </h2>
+      <div style={{ marginLeft: "5rem" }}>
+        <h2 style={{ fontWeight: "normal" }}>Давление в трубе</h2>
+        <Button
+          type="primary"
+          style={{ marginRight: "1rem" }}
+          onClick={() => startDraw(heatmapInstanceRef.current)}
+        >
+          Start
+        </Button>
+        <Button type="primary" danger onClick={() => stopDraw()}>
+          Stop
+        </Button>
+      </div>
 
       <div style={{ position: "relative", width: SCALE_WIDTH, height: 600 }}>
-        <div
-          id="d3_scale"
-          style={{ marginLeft: "2.2rem", position: "absolute" }}
-        ></div>
+        <YScale
+          scaleHeight={SCALE_HEIGHT}
+          numberOfSlices={heatmapPoints[0].length}
+        />
         <div
           id="visual-heatmap-container"
           ref={mapRef}
@@ -426,6 +436,8 @@ const HeatmapComponent = () => {
           width={HEATMAP_WIDTH}
           values={distanceSliderValues}
           setValues={setDistanceSliderValues}
+          maxDist={maxDistanceValue}
+          minDist={minDistanceValue}
         />
         <div
           style={{
