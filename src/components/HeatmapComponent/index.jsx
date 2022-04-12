@@ -335,7 +335,7 @@ const HeatmapComponent = () => {
       console.log("current data");
       console.log(currentData);
       instance.clear();
-      // instance.renderData(currentData);
+      instance.renderData(currentData);
     }
   };
 
