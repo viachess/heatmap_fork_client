@@ -10,23 +10,28 @@ const DistanceRangeSlider = ({
   setValues,
   minDist,
   maxDist,
+  setMinDist,
+  setMaxDist,
+  redraw,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
+  const [range, setRange] = useState([minDist, maxDist]);
 
-  const handleAfterChange = (event, newValue) => {
-    // TODO: Fix, add handler for data altering
-    console.log("range slider change event fired");
-    console.log("event");
-    console.log(event);
-    console.log("value");
-    console.log(newValue);
-    setIsUpdated(true);
-    // setValues(newValue);
+  const handleAfterChange = (newValues) => {
+    console.log(newValues);
+    const newMin = newValues[0];
+    const newMax = newValues[1];
+    const min = range[0];
+    const max = range[1];
+    if (newMin !== min || newMax !== max) {
+      setIsUpdated(true);
+      setRange([newMin, newMax]);
+    }
   };
+
   const [pipeDistanceMarks, setPipeDistanceMarks] = useState();
   useEffect(() => {
     const marks = {};
-    console.log("pipe distance values");
     values.sort((a, b) => a - b);
     values.forEach((value, index) => {
       if (index % 2 === 0) {
@@ -43,13 +48,16 @@ const DistanceRangeSlider = ({
 
     setPipeDistanceMarks(marks);
     setIsLoading(false);
-    // console.log("pipe distance marks");
-    // console.log(pipeDistanceMarks);
   }, [values]);
 
   const [isUpdated, setIsUpdated] = useState(false);
   const handleUpdateBtnClick = () => {
-    // TODO: set values using setValues func
+    setIsUpdated(false);
+    setMinDist(range[0]);
+    setMaxDist(range[1]);
+    redraw();
+  };
+  const hideUpdateBtnClick = () => {
     setIsUpdated(false);
   };
 
@@ -75,8 +83,15 @@ const DistanceRangeSlider = ({
           {isUpdated && (
             <div>
               <h5>Обнаружены изменения в расстоянии, обновить данные?</h5>
-              <Button type="primary" onClick={handleUpdateBtnClick}>
+              <Button
+                type="primary"
+                onClick={handleUpdateBtnClick}
+                style={{ marginRight: "1rem" }}
+              >
                 Обновить
+              </Button>
+              <Button danger onClick={hideUpdateBtnClick}>
+                Нет
               </Button>
             </div>
           )}

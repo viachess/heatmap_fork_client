@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
 import * as d3 from "d3";
 
-const YScale = ({ scaleHeight, numberOfSlices }) => {
-  const [yScaleTicks, setYScaleTicks] = useState([]);
-
+const YScale = ({ scaleHeight, numberOfSlices, yScaleTicks }) => {
   function drawYScale(scaleTicks, scaleHeight) {
     const yScaleSVG = d3.select("#d3_scale").select("svg");
     yScaleSVG.selectAll(".y_axis").remove();
@@ -52,6 +50,7 @@ const YScale = ({ scaleHeight, numberOfSlices }) => {
 
   useEffect(() => {
     drawYScale(yScaleTicks, scaleHeight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yScaleTicks, scaleHeight]);
 
   return (

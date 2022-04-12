@@ -285,18 +285,17 @@ const HeatmapComponent = () => {
     setGradientRange(newRange);
   }
   const heatmapInstanceRef = useRef(null);
-  // const [currentData, setCurrentData] = useState([]);
+  const [currentData, setCurrentData] = useState([]);
   const updateCanvas = () => {
     if (heatmapInstanceRef.current) {
-      console.log("heatmap instance exists");
       const instance = heatmapInstanceRef.current;
       const dataSlice = getHeatmapDataSliceByIndex(counterRef.current);
       if (counterRef.current < heatmapPoints[0].length) {
         if (counterRef.current === 0) {
-          // setCurrentData([...dataSlice]);
+          setCurrentData([...dataSlice]);
           instance.renderData(dataSlice);
         } else {
-          // setCurrentData((prevState) => [...prevState, ...dataSlice]);
+          setCurrentData((prevState) => [...prevState, ...dataSlice]);
           instance.addData(dataSlice, true);
         }
         counterRef.current += 1;
@@ -309,30 +308,40 @@ const HeatmapComponent = () => {
       }
     }
   };
-  // useEffect(() => {
 
-  // }, [currentData]);
+  const [yScaleTicks, setYScaleTicks] = useState([]);
+  const updateYScale = () => {
+    if (counterRef.current < heatmapPoints[0].length) {
+      setYScaleTicks((prevState) => [
+        ...prevState,
+        heatmapPoints[counterRef.current][0].y,
+      ]);
+    } else if (
+      counterRef.current === heatmapPoints[0].length ||
+      counterRef.current > heatmapPoints[0].length
+    ) {
+      // console.log("counter is === or > length, wiping values");
+      setYScaleTicks([]);
+    }
+  };
 
-  // const updateYScale = () => {
-  //   if (counterRef.current < heatmapPoints[0].length - 1) {
-  //     setYScaleTicks((prevState) => [
-  //       ...prevState,
-  //       heatmapPoints[counterRef.current][0].y,
-  //     ]);
-  //     counterRef.current += 1;
-  //   } else if (
-  //     counterRef.current === heatmapPoints[0].length - 1 ||
-  //     counterRef.current > heatmapPoints[0].length - 1
-  //   ) {
-  //     // console.log("counter is === or > length, wiping values");
-  //     counterRef.current = 0;
-  //     setYScaleTicks([]);
-  //   }
-  // };
+  const [minDistance, setMinDistance] = useState(minDistanceValue);
+  const [maxDistance, setMaxDistance] = useState(maxDistanceValue);
 
-  function startDraw(instance) {
+  const redrawCanvas = () => {
+    if (heatmapInstanceRef.current) {
+      const instance = heatmapInstanceRef.current;
+      console.log("redraw canvas log");
+      console.log("current data");
+      console.log(currentData);
+      instance.clear();
+      // instance.renderData(currentData);
+    }
+  };
+
+  function startDraw() {
     intervalRef.current = setInterval(() => {
-      // updateYScale();
+      updateYScale();
       updateCanvas();
     }, 2000);
   }
@@ -361,6 +370,7 @@ const HeatmapComponent = () => {
     };
   }, [gradientRange]);
 
+  // draw x scale
   useEffect(() => {
     var svg = d3
       .select("#d3_scale")
@@ -392,17 +402,17 @@ const HeatmapComponent = () => {
 
   return (
     <div>
-      <div style={{ marginLeft: "5rem" }}>
+      <div style={{ marginLeft: "5.35rem" }}>
         <h2 style={{ fontWeight: "normal" }}>Давление в трубе</h2>
         <Button
           type="primary"
           style={{ marginRight: "1rem" }}
-          onClick={() => startDraw(heatmapInstanceRef.current)}
+          onClick={() => startDraw()}
         >
-          Start
+          Старт
         </Button>
         <Button type="primary" danger onClick={() => stopDraw()}>
-          Stop
+          Стоп
         </Button>
       </div>
 
@@ -410,6 +420,7 @@ const HeatmapComponent = () => {
         <YScale
           scaleHeight={SCALE_HEIGHT}
           numberOfSlices={heatmapPoints[0].length}
+          yScaleTicks={yScaleTicks}
         />
         <div
           id="visual-heatmap-container"
@@ -436,8 +447,11 @@ const HeatmapComponent = () => {
           width={HEATMAP_WIDTH}
           values={distanceSliderValues}
           setValues={setDistanceSliderValues}
-          maxDist={maxDistanceValue}
-          minDist={minDistanceValue}
+          maxDist={maxDistance}
+          minDist={minDistance}
+          setMinDist={setMinDistance}
+          setMaxDist={setMaxDistance}
+          redraw={redrawCanvas}
         />
         <div
           style={{
