@@ -29,7 +29,11 @@ const YScale = ({ scaleHeight, numberOfSlices, yScaleTicks }) => {
           .tickFormat(d3.timeFormat("%H:%M:%S"))
           .tickValues(
             scaleTicks.map(function (d, idx) {
-              return new Date(d);
+              const splitRawDate = d.split(" ");
+              const date = splitRawDate[0].replaceAll(".", "-");
+              const time = splitRawDate[1];
+              const formattedDate = `${date}T${time}Z`;
+              return new Date(formattedDate);
             })
           )
       );
